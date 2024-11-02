@@ -1,0 +1,19 @@
+// Script developed and provided by Leon Hauser, 2024
+// Define ROI from Maus et al. (2020) subsetted mining location polygons
+var roi = ee.FeatureCollection("projects/ee-tenlaleon/assets/Maus_selection_ESS417");
+
+// Create a 10km buffer around the ROI
+var buffer = roi.map(function(feature) {
+  return feature.buffer(10000);
+});
+
+// Center the map around the ROI
+Map.centerObject(roi);
+
+// Add the ROI to the map
+Map.addLayer(roi, {}, 'ROI');
+
+// Add the buffer to the map in red
+Map.addLayer(buffer, {color: 'red'}, '10km Buffer');
+
+// Maus et al. reference: https://doi.org/10.1594/PANGAEA.942325

@@ -1,0 +1,114 @@
+// Script developed and provided by Leon Hauser, 2024
+// BACKGROUND: 
+// Since 2018, Weda Bay on Halmahera Island has become a major nickel producer.
+// Driven by Indonesian, French, and Chinese companies, the project focuses on open-pit nickel-cobalt mining for stainless steel.
+// Production began in 2019, with the first ferronickel cast in 2020, supporting EV battery production.
+// The mining has significantly impacted local environments and communities, including the Hongana Manyawa tribe.
+
+
+// LOADING MINING SITE SELECTION AND SELECTING MINING ASSET
+// Maus et al. (2020) reference: https://doi.org/10.1594/PANGAEA.942325
+//
+var miningsites = ee.FeatureCollection("projects/ee-tenlaleon/assets/Maus_selection_ESS417");
+// Print the collection to the console
+print('Maus Selection Features:', miningsites);
+// Filter to select a specific mining asset by its feature ID 
+// var asset = miningsites.filter(ee.Filter.eq('system:index', '00000000000000000001'));
+var asset = miningsites.filter(ee.Filter.eq('system:index', '00000000000000000002')); //
+// var asset = miningsites.filter(ee.Filter.eq('system:index', '00000000000000000003'));
+// Create a 51 km buffer around the mining asset
+var bufferDistance = 7000; // in meters
+var roi = asset.geometry().buffer(bufferDistance);
+
+// LOADING THE DATASETS:
+//
+// Define ROI from intersecting HydroSHEDS basins: https://developers.google.com/earth-engine/datasets/catalog/WWF_HydroATLAS_v1_Basins_level08
+// Change level for bigger (1) to smaller subbasins (12)
+//var waterbasin = ee.FeatureCollection('WWF/HydroSHEDS/v1/Basins/hybas_12')
+//  .filterBounds(asset);
+
+// Load MODIS GPP dataset, more information: https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MOD17A2HGF#description
+var modisGPP2023 = ee.ImageCollection('MODIS/061/MOD17A2HGF')
+    .filterDate('2023-01-01', '2023-12-31')
+    .filterBounds(roi)
+    .select('Gpp')
+    .median()
+    .clip(roi);
+
+// Load MODIS GPP dataset, more information: https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MOD17A2HGF#description
+var modisGPP2002 = ee.ImageCollection('MODIS/061/MOD17A2HGF')
+    .filterDate('2002-01-01', '2002-12-31')
+    .filterBounds(roi)
+    .select('Gpp')
+    .median()
+    .clip(roi);
+
+// VISUALIZATION
+//
+// Center the map around the ROI and buffer
+Map.centerObject(roi, 12);
+// Add the asset and ROI to the map
+//Map.addLayer(waterbasin, {color: 'blue'}, 'Waterbasin - Region of Interest (ROI)');
+Map.addLayer(asset, {color: 'red'}, 'Mining site - Maus et al polygon');
+Map.addLayer(roi, {color: 'grey'}, 'Mining site 5km buffer');
+//
+// GPP visualisation 
+var gppViz = {
+  min: 0,
+  max: 600,
+  palette: ['bbe029', '0a9501', '074b03'],
+};
+// Add MODIS GPP to the map with updated color palette
+Map.addLayer(modisGPP2002, gppViz, 'MODIS GPP 2002');
+Map.addLayer(modisGPP2023, gppViz, 'MODIS GPP 2023');
+
+
+// Load MODIS GPP dataset
+var modisGPPCollection = ee.ImageCollection('MODIS/061/MOD17A2HGF')
+    .filterBounds(roi)
+    .select('Gpp');
+
+// Define the time range
+var startYear = 2001;
+var endYear = 2023;
+
+// Function to calculate annual sum GPP for each year, , more information MODIS GPP dataset: https://developers.google.com/earth-engine/datasets/catalog/MODIS_061_MOD17A2HGF#description
+function getAnnualGPP(year) {
+  var startDate = ee.Date.fromYMD(year, 1, 1);
+  var endDate = ee.Date.fromYMD(year, 12, 31);
+  var annualGPP = modisGPPCollection
+    .filterDate(startDate, endDate)
+    .median() // Sum to get annual GPP
+    .reduceRegion({
+      reducer: ee.Reducer.mean(),
+      geometry: roi,
+      scale: 500,
+      maxPixels: 1e13
+    })
+    .get('Gpp');
+
+  return ee.Feature(null, {'year': year, 'GPP': annualGPP});
+}
+
+// Create a list of years
+var years = ee.List.sequence(startYear, endYear);
+
+// Run time series
+var gppTimeSeries = ee.FeatureCollection(years.map(getAnnualGPP));
+
+// Print the time series to the console
+print('Annual GPP Time Series:', gppTimeSeries);
+
+// Chart the time series
+var chart = ui.Chart.feature.byFeature(gppTimeSeries, 'year', 'GPP')
+  .setChartType('LineChart')
+  .setOptions({
+    title: 'Annual GPP from 2001 to 2022',
+    hAxis: {title: 'Year'},
+    vAxis: {title: 'Gross Primary Productivity (GPP)'},
+    lineWidth: 2,
+    pointSize: 3
+  });
+
+// Display the chart
+print(chart);

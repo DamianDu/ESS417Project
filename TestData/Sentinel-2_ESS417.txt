@@ -1,0 +1,60 @@
+// Script developed and provided by Leon Hauser, 2024
+//LOADING MINING SITE SELECTION AND SELECTING MINING ASSET
+// Maus et al. (2020) reference: https://doi.org/10.1594/PANGAEA.942325
+//
+var miningsites = ee.FeatureCollection("projects/ee-tenlaleon/assets/Maus_selection_ESS417");
+// Print the collection to the console
+print('Maus Selection Features:', miningsites);
+// Filter to select a specific mining asset by its feature ID 
+var asset = miningsites.filter(ee.Filter.eq('system:index', '00000000000000000001')); //GRASBERG MINE!
+// var asset = miningsites.filter(ee.Filter.eq('system:index', '00000000000000000002'));
+// var asset = miningsites.filter(ee.Filter.eq('system:index', '00000000000000000003'));
+
+// LOADING THE DATASETS:
+//
+// Define ROI from intersecting HydroSHEDS basins: https://developers.google.com/earth-engine/datasets/catalog/WWF_HydroATLAS_v1_Basins_level08
+// Change level for bigger (1) to smaller subbasins (12)
+var roi = ee.FeatureCollection('WWF/HydroSHEDS/v1/Basins/hybas_8')
+  .filterBounds(asset);
+// Harmonized Sentinel-2 Level 2A collection: https://developers.google.com/earth-engine/datasets/catalog/COPERNICUS_S2_SR_HARMONIZED
+var s2 = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED');
+// Cloud Score+ image collection: https://developers.google.com/earth-engine/datasets/catalog/GOOGLE_CLOUD_SCORE_PLUS_V1_S2_HARMONIZED
+var csPlus = ee.ImageCollection('GOOGLE/CLOUD_SCORE_PLUS/V1/S2_HARMONIZED');
+
+// DEFINE THE YEAR OF INTEREST:
+//
+var year = 2023
+
+//SETUP CLOUDSCORE PLUS
+//
+// Use 'cs' or 'cs_cdf', depending on your use case; see documentation for more: https://developers.google.com/earth-engine/datasets/catalog/GOOGLE_CLOUD_SCORE_PLUS_V1_S2_HARMONIZED
+var QA_BAND = 'cs_cdf';
+// The threshold for masking; values between 0.50 and 0.65 generally work well. ontinuous scale between 0 and 1, where 0 represents "not clear" (occluded), while 1 represents "clear" (unoccluded) observations
+// Higher values will remove thin clouds, haze & cirrus shadows.
+var CLEAR_THRESHOLD = 0.60;
+
+//SENTINEL-2 COMPOSITING
+//
+// Make a Sentinel-2 cloudless median composite.
+var composite = s2
+    .filterBounds(roi)
+    .filterDate(year + '-01-01', year + '-12-31')
+    .linkCollection(csPlus, [QA_BAND])
+    .map(function(img) {
+      return img.updateMask(img.select(QA_BAND).gte(CLEAR_THRESHOLD));
+    })
+    .median()
+    .clip(roi); // Clip the composite to the ROI
+//
+// Sentinel-2 visualization parameters.
+var s2Viz = {bands: ['B4', 'B3', 'B2'], min: 0, max: 2500};
+
+//VISUALIZATION
+//
+// Center the map around the ROI
+Map.centerObject(roi, 10);
+// Add the asset and ROI to the map
+Map.addLayer(roi, {}, 'Waterbasin - Region of Interest (ROI)');
+Map.addLayer(asset, {color: 'red'}, 'Mining site - Maus et al polygon');
+// Add Sentinel-2 composite to the map
+Map.addLayer(composite, s2Viz, 'S2 cloudless composite');
